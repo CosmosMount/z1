@@ -87,7 +87,7 @@ class z1_Simulator:
         self.delta_angle = 0.05
         self.clock = pygame.time.Clock()
 
-        print("Use keys 1-6 to increase joint 1-6 angle, SHIFT+1-6 to decrease (e.g. ! @ # $ % ^). ESC to exit.")
+        print("Use keys 1-6 to increase joint 1-6 angle, SHIFT+1-6 to decrease. ESC to exit.")
         
     def step_keyboard(self):
         self.gym.fetch_results(self.sim, True)
@@ -96,14 +96,15 @@ class z1_Simulator:
         for event in pygame.event.get():
             if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                 print("Exiting...")
-                running = False
+                self.end()
+                exit(0)
 
         for i in range(min(self.num_dofs, 6)):
             if keys[pygame.K_1 + i]:
                 if pygame.key.get_mods() & pygame.KMOD_SHIFT:
-                    self.dof_targets[i] += self.delta_angle
-                else:
                     self.dof_targets[i] -= self.delta_angle
+                else:
+                    self.dof_targets[i] += self.delta_angle
 
             self.dof_targets[i] = np.clip(self.dof_targets[i], self.lower_limits[i], self.upper_limits[i])
 
