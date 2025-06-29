@@ -33,7 +33,7 @@ class z1_Simulator:
         sim_params.physx.num_position_iterations = 4
         sim_params.physx.num_velocity_iterations = 1
         sim_params.physx.max_gpu_contact_pairs = 8388608
-        sim_params.physx.contact_offset = 0.002
+        sim_params.physx.contact_offset = 0.001
         sim_params.physx.friction_offset_threshold = 0.001
         sim_params.physx.friction_correlation_distance = 0.0005
         sim_params.physx.rest_offset = 0.0
@@ -80,7 +80,7 @@ class z1_Simulator:
         pose.p = gymapi.Vec3(0, 0, 0)
         pose.r = gymapi.Quat.from_euler_zyx(0, 0, 0)
 
-        self.actor = self.gym.create_actor(self.env, self.asset, pose, "z1", 0, 1)
+        self.actor = self.gym.create_actor(self.env, self.asset, pose, "z1", 0, -1)
 
         self.num_dofs = self.gym.get_asset_dof_count(self.asset)
         print(f"Number of DOFs: {self.num_dofs}")
@@ -90,6 +90,12 @@ class z1_Simulator:
 
         dof_states = self.gym.get_actor_dof_states(self.env, self.actor, gymapi.STATE_ALL)
         self.dof_targets = dof_states['pos'].copy()
+
+        # shape_props = self.gym.get_actor_rigid_shape_properties(self.env, self.actor)
+        # for prop in shape_props:
+        #     prop.filter = gymapi.ShapeFilter()
+        #     prop.filter.maskBits = 0xFFFFFFFF
+        # self.gym.set_actor_rigid_shape_properties(self.env, self.actor, shape_props)
 
     def initialize_keyboard(self):
         pygame.init()
