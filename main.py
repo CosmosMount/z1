@@ -25,9 +25,20 @@ class z1_Simulator:
 
     def create_sim(self):
         sim_params = gymapi.SimParams()
-        sim_params.up_axis = gymapi.UP_AXIS_Z 
+        sim_params.dt = 1 / 60
+        sim_params.substeps = 2
+        sim_params.up_axis = gymapi.UP_AXIS_Z
         sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.81)
+        sim_params.physx.solver_type = 1
+        sim_params.physx.num_position_iterations = 4
+        sim_params.physx.num_velocity_iterations = 1
+        sim_params.physx.max_gpu_contact_pairs = 8388608
+        sim_params.physx.contact_offset = 0.002
+        sim_params.physx.friction_offset_threshold = 0.001
+        sim_params.physx.friction_correlation_distance = 0.0005
+        sim_params.physx.rest_offset = 0.0
         sim_params.physx.use_gpu = True
+        sim_params.use_gpu_pipeline = False
 
         self.sim = self.gym.create_sim(0, 0, gymapi.SIM_PHYSX, sim_params)
         if self.sim is None:
@@ -44,7 +55,7 @@ class z1_Simulator:
         self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, look_at)
 
     def load_assets(self):
-        asset_root = "../z1_simulator/z1_description/xacro"
+        asset_root = "../z1_simulator/z1/urdf"
         asset_file = "z1.urdf"
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
@@ -72,6 +83,7 @@ class z1_Simulator:
         self.actor = self.gym.create_actor(self.env, self.asset, pose, "z1", 0, 1)
 
         self.num_dofs = self.gym.get_asset_dof_count(self.asset)
+        print(f"Number of DOFs: {self.num_dofs}")
         dof_props = self.gym.get_actor_dof_properties(self.env, self.actor)
         self.lower_limits = dof_props['lower']
         self.upper_limits = dof_props['upper']
@@ -99,7 +111,7 @@ class z1_Simulator:
                 self.end()
                 exit(0)
 
-        for i in range(min(self.num_dofs, 6)):
+        for i in range(self.num_dofs):
             if keys[pygame.K_1 + i]:
                 if pygame.key.get_mods() & pygame.KMOD_SHIFT:
                     self.dof_targets[i] -= self.delta_angle
