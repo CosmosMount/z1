@@ -1,10 +1,14 @@
 from isaacgym import gymapi
 from isaacgym import gymutil
+
 import os
 import time
 import math
 import pygame
 import numpy as np
+
+from ikpy.chain import Chain
+
 
 class z1_Simulator:
 
@@ -16,7 +20,11 @@ class z1_Simulator:
         self.load_assets()
         self.build_ground()
         self.initialize_arm()
-        self.initialize_keyboard()
+        self.initialize_events()
+
+        self.moving_to_target = False
+        self.target_reached = False
+        self.steps_count = 0
 
     def build_ground(self):
         plane_params = gymapi.PlaneParams()
@@ -53,6 +61,11 @@ class z1_Simulator:
         look_at = gymapi.Vec3(0.0, 0.0, 0.0)
 
         self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, look_at)
+
+        # Set viewer window always on top
+        window_id = os.popen("wmctrl -l | grep 'Isaac Gym' | awk '{print $1}'").read().strip()
+        if window_id:
+            os.system(f"wmctrl -i -r {window_id} -b add,above")
 
     def load_assets(self):
         asset_root = "../z1_simulator/z1/urdf"
@@ -91,47 +104,95 @@ class z1_Simulator:
         dof_states = self.gym.get_actor_dof_states(self.env, self.actor, gymapi.STATE_ALL)
         self.dof_targets = dof_states['pos'].copy()
 
-        # shape_props = self.gym.get_actor_rigid_shape_properties(self.env, self.actor)
-        # for prop in shape_props:
-        #     prop.filter = gymapi.ShapeFilter()
-        #     prop.filter.maskBits = 0xFFFFFFFF
-        # self.gym.set_actor_rigid_shape_properties(self.env, self.actor, shape_props)
-
-    def initialize_keyboard(self):
-        pygame.init()
-        screen = pygame.display.set_mode((400, 300))
-        pygame.display.set_caption("Z1 Arm Keyboard Control")
-
-        self.delta_angle = 0.05
-        self.clock = pygame.time.Clock()
-
-        print("Use keys 1-6 to increase joint 1-6 angle, SHIFT+1-6 to decrease. ESC to exit.")
+        active_mask = [False, True, True, True, True, True, True, False, False]
+        self.robot_chain = Chain.from_urdf_file("../z1_simulator/z1/urdf/z1.urdf", base_elements=['link00'], active_links_mask=active_mask)
         
-    def step_keyboard(self):
-        self.gym.fetch_results(self.sim, True)
+    def initialize_events(self):
 
-        keys = pygame.key.get_pressed()
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-                print("Exiting...")
-                self.end()
-                exit(0)
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_I, "input_coords")
+        
+        for i in range(1, 8):
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, getattr(gymapi, f"KEY_{i}"), f"joint_{i}")
 
-        for i in range(self.num_dofs):
-            if keys[pygame.K_1 + i]:
-                if pygame.key.get_mods() & pygame.KMOD_SHIFT:
-                    self.dof_targets[i] -= self.delta_angle
-                else:
-                    self.dof_targets[i] += self.delta_angle
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_LEFT_SHIFT, "shift")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_RIGHT_SHIFT, "shift")
 
-            self.dof_targets[i] = np.clip(self.dof_targets[i], self.lower_limits[i], self.upper_limits[i])
+        self.key_states = {
+            "joint_1": False, "joint_2": False, "joint_3": False,
+            "joint_4": False, "joint_5": False, "joint_6": False,
+            "joint_7": False, "shift": False
+        }
+
+        transform = self.gym.get_rigid_transform(self.env, 8)
+        self.target_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
+    
+    def step(self):
+
+        if self.gym.query_viewer_has_closed(self.viewer):
+            print("Viewer closed, exiting...")
+            self.end()
+            exit(0)
+        
+        events = self.gym.query_viewer_action_events(self.viewer)
+        for event in events:
+            if event.action == "input_coords" and event.value > 0:
+                try:
+
+                    user_input = input("Please input the target coordinate (x y z), split by spaces: ")
+                    coords = [float(x) for x in user_input.split()]
+                    
+                    if len(coords) == 3:
+                        self.target_position = np.array(coords,dtype=np.float32)
+                        print(f"New target position: {self.target_position}")
+                        self.moving_to_target = True
+                        self.target_reached = False
+                        self.steps_count = 0
+
+                    else:
+                        print("Error: Please input exactly three coordinates (x, y, z)")
+
+                except ValueError:
+                    print("Error: Invalid input. Please enter three numeric values separated by spaces.")
+
+        if self.moving_to_target and not self.target_reached:
+
+            self.steps_count += 1
+
+            transform = self.gym.get_rigid_transform(self.env, 8)
+            current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
+            print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
+            distance = np.linalg.norm(current_position - self.target_position)
+
+            if distance < 0.05 or self.steps_count > 100:
+
+                self.target_reached = True
+                self.moving_to_target = False
+                print("Target position reached." if distance < 0.05 else "Steps limit exceeded, target cannot be reached.")
+
+            else:
+
+                self.gym.fetch_results(self.sim, True)
+                ik_solution = self.robot_chain.inverse_kinematics(self.target_position)
+                self.dof_targets[:6] = np.array(ik_solution[1:7], dtype=np.float32)
+                self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
+                self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
+
+        else:
+
+            for event in events:
+                if event.action in self.key_states:
+                    self.key_states[event.action] = event.value > 0
+
+            for i in range(7):
+                action_key = f"joint_{i+1}"
+                if self.key_states[action_key]:
+                    direction = -1 if self.key_states["shift"] else 1
+                    self.dof_targets[i] += direction * 0.05
 
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
-
         self.gym.simulate(self.sim)
         self.gym.step_graphics(self.sim)
         self.gym.draw_viewer(self.viewer, self.sim, True)
-        self.clock.tick(60)
 
     def end(self):
         self.gym.destroy_viewer(self.viewer)
@@ -139,10 +200,9 @@ class z1_Simulator:
 
 if __name__ == '__main__':
     simulator = z1_Simulator()
-
     try:
         while True:
-            simulator.step_keyboard()
+            simulator.step()
     except KeyboardInterrupt:
         simulator.end()
         exit(0)
