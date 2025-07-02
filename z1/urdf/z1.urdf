@@ -268,6 +268,7 @@
           <geometry>
               <mesh filename="../meshes/visual/z1_GripperStator.stl" scale="1 1 1"/>
           </geometry>
+          <!-- <sdf resolution="64"/> -->
       </collision>
 
       <inertial>
@@ -301,6 +302,7 @@
           <geometry>
               <mesh filename="../meshes/visual/z1_GripperMover.stl" scale="1 1 1"/>
           </geometry>
+          <!-- <sdf resolution="256"/> -->
       </collision>
       <inertial>
           <origin rpy="0 0 0" xyz="0.01320633 0.00476708 0.00380534"/>

@@ -17,19 +17,16 @@ class z1_Simulator:
         self.create_sim()
         self.create_env()
         self.create_viewer()
-        self.load_assets()
+
         self.build_ground()
+        self.build_objects()
+
         self.initialize_arm()
         self.initialize_events()
 
         self.moving_to_target = False
         self.target_reached = False
         self.steps_count = 0
-
-    def build_ground(self):
-        plane_params = gymapi.PlaneParams()
-        plane_params.normal = gymapi.Vec3(0, 0, 1)
-        self.gym.add_ground(self.sim, plane_params)
 
     def create_sim(self):
         sim_params = gymapi.SimParams()
@@ -67,17 +64,6 @@ class z1_Simulator:
         if window_id:
             os.system(f"wmctrl -i -r {window_id} -b add,above")
 
-    def load_assets(self):
-        asset_root = "../z1_simulator/z1/urdf"
-        asset_file = "z1.urdf"
-        asset_options = gymapi.AssetOptions()
-        asset_options.fix_base_link = True
-        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
-        asset_options.disable_gravity = False
-        asset_options.armature = 0.01
-
-        self.asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
-
     def create_env(self):
         num_envs = 1
         num_per_row = int(math.sqrt(num_envs))
@@ -88,7 +74,91 @@ class z1_Simulator:
 
         self.env = self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
 
+    def build_ground(self):
+        plane_params = gymapi.PlaneParams()
+        plane_params.normal = gymapi.Vec3(0, 0, 1)
+        self.gym.add_ground(self.sim, plane_params)
+    
+    def build_objects(self):
+        # 加载桌子资产
+        table_dims = gymapi.Vec3(0.4, 0.4, 0.3)  # 长、宽、高
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = True
+        table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, asset_options)
+
+        # 创建第一张桌子
+        table1_pose = gymapi.Transform()
+        table1_pose.p = gymapi.Vec3(0.0, 0.5, table_dims.z/2)
+        self.gym.create_actor(self.env, table_asset, table1_pose, "table1", 0, 0)
+
+        # 创建第二张桌子
+        table2_pose = gymapi.Transform()
+        table2_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z/2)
+        self.gym.create_actor(self.env, table_asset, table2_pose, "table2", 0, 0)
+
+        # 加载物块资产
+        block_dims = gymapi.Vec3(0.05, 0.02, 0.1)  # 立方体
+        asset_options = gymapi.AssetOptions()
+        block_asset = self.gym.create_box(self.sim, block_dims.x, block_dims.y, block_dims.z, asset_options)
+
+        # 在第二张桌子上放置物块
+        block_pose = gymapi.Transform()
+        block_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + block_dims.z/2)
+        block_actor = self.gym.create_actor(self.env, block_asset, block_pose, "block", 0, 0)
+
+        # 设置物块属性以便抓取
+        props = self.gym.get_actor_rigid_body_properties(self.env, block_actor)
+        props[0].mass = 0.1  # 设置质量
+        self.gym.set_actor_rigid_body_properties(self.env, block_actor, props)
+
+        props = self.gym.get_actor_rigid_shape_properties(self.env, block_actor)
+        props[0].friction = 10.0
+        self.gym.set_actor_rigid_shape_properties(self.env, block_actor, props)
+
+        # 输出物块坐标
+        block_transform = self.gym.get_rigid_transform(self.env, block_actor)
+        print(f"Block position: {block_transform.p.x}, {block_transform.p.y}, {block_transform.p.z}")
+
+
+        # ball_density = 1.0  # 球的密度
+        # ball_radius = 0.02  # 球的半径
+
+        # # 创建球形资产
+        # asset_options = gymapi.AssetOptions()
+        # asset_options.density = 0.5
+        # asset_options.fix_base_link = False  # 不固定，可以移动
+        # ball_asset = self.gym.create_sphere(self.sim, ball_radius, asset_options)
+
+        # # 设置物块初始位置
+        # ball_pose = gymapi.Transform()
+        # ball_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + ball_radius)
+
+        # # 创建物块actor
+        # ball_actor = self.gym.create_actor(self.env, ball_asset, ball_pose, "ball", 0, 0)
+
+        # # 设置物块物理属性
+        # props = self.gym.get_actor_rigid_body_properties(self.env, ball_actor)
+        # props[0].mass = (4/3) * 3.14159 * ball_radius**3 * ball_density  # 计算质量
+        # self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
+    
     def initialize_arm(self):
+        asset_root = "../z1_simulator/z1/urdf"
+        asset_file = "z1.urdf"
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = True
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
+        asset_options.disable_gravity = False
+        asset_options.armature = 0.01
+        asset_options.use_mesh_materials = True  
+        asset_options.mesh_normal_mode = gymapi.COMPUTE_PER_VERTEX 
+        asset_options.override_com = True 
+        asset_options.override_inertia = True 
+        asset_options.vhacd_enabled = True 
+        asset_options.vhacd_params = gymapi.VhacdParams() 
+        asset_options.vhacd_params.resolution = 300000 
+
+        self.asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+
         pose = gymapi.Transform()
         pose.p = gymapi.Vec3(0, 0, 0)
         pose.r = gymapi.Quat.from_euler_zyx(0, 0, 0)
@@ -174,8 +244,6 @@ class z1_Simulator:
                 self.gym.fetch_results(self.sim, True)
                 ik_solution = self.robot_chain.inverse_kinematics(self.target_position)
                 self.dof_targets[:6] = np.array(ik_solution[1:7], dtype=np.float32)
-                self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
-                self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
 
         else:
 
@@ -187,8 +255,12 @@ class z1_Simulator:
                 action_key = f"joint_{i+1}"
                 if self.key_states[action_key]:
                     direction = -1 if self.key_states["shift"] else 1
-                    self.dof_targets[i] += direction * 0.05
+                    if i == 0:
+                        self.dof_targets[i] += direction * 0.05
+                    else:
+                        self.dof_targets[i] += direction * 0.005
 
+        self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
         self.gym.simulate(self.sim)
         self.gym.step_graphics(self.sim)
