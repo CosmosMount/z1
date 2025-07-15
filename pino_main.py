@@ -179,28 +179,16 @@ class z1_Simulator:
         self.pin_model = pin.buildModelFromUrdf(urdf_path)
         self.pin_data  = self.pin_model.createData()
 
-        # 关节索引：Pinocchio 里末端连杆对应的 joint id
-        # 用名字找最保险，也可以用固定索引
-        # end_link_name = "gripperStator"
-        # self.pin_end_id = self.pin_model.getFrameId(end_link_name,pin.FrameType.BODY)
-
         # 初始位姿（用于 IK 初值）
         self.q_pin = pin.neutral(self.pin_model)   # 长度 = 模型总关节数
-        # print("[Pinocchio] model nq =", self.pin_model.nq, "end joint id =", self.pin_end_id)
-
-        # # 腕关节/连杆名字，请在 URDF 里确认
-        wrist_link_name = "gripperStator"        # 或 "wrist_3_link" / "tool0" 等
-        self.wrist_frame_id = self.pin_model.getFrameId(wrist_link_name,pin.FrameType.BODY)
-        print("[Pinocchio] wrist_frame_id =", self.wrist_frame_id)
-
-        # 前 5 个关节在 Pinocchio 中的索引（从 0 开始数）
-        self.arm_dofs = list(range(5))    # 即 q0,q1,q2,q3,q4
+        self.q_home = pin.neutral(self.pin_model)
 
         
     def initialize_events(self):
 
         self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_I, "input_coords")
         self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_S, "show_coords")
+        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_R, "reset_all")
         
         for i in range(1, 8):
             self.gym.subscribe_viewer_keyboard_event(self.viewer, getattr(gymapi, f"KEY_{i}"), f"joint_{i}")
@@ -250,11 +238,15 @@ class z1_Simulator:
                 current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
                 print(f"Current position: {current_position}")
 
+            if event.action == "reset_all":
+                self.dof_targets[:6] = self.q_home[:6]
+                self.q_pin[:] = self.q_home
+
         if self.moving_to_target and not self.target_reached:
 
             self.steps_count += 1
 
-            transform = self.gym.get_rigid_transform(self.env, 8)
+            transform = self.gym.get_rigid_transform(self.env, 7)
             current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
             print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
             distance = np.linalg.norm(current_position - self.target_position)
@@ -264,16 +256,16 @@ class z1_Simulator:
                 self.target_reached = True
                 self.moving_to_target = False
                 print("Target position reached." if distance < 0.05 else "Steps limit exceeded, target cannot be reached.")
+                if self.steps_count > 500:
+                    self.dof_targets[:6] = self.q_home[:6]
+                    self.q_pin[:] = self.q_home
+
 
             else:
 
                 self.gym.fetch_results(self.sim, True)
-                # q_cmd = self.pin_ik(self.target_position)
-                # self.dof_targets[:6] = q_cmd.astype(np.float32)
-                # q_cmd_5 = self.pin_ik_wrist(self.target_position)   # 5 维
-                # self.dof_targets[:6] = q_cmd_5.astype(np.float32)   # 只写前 5 个
                 q = self.inverse_kinematics(self.target_position)
-                self.dof_targets[:6] = np.array(q[:6], dtype=np.float32)
+                self.dof_targets[:6] = q[:6].astype(np.float32)  # 只写前 6 个关节
 
         else:
 
@@ -303,7 +295,7 @@ class z1_Simulator:
     def inverse_kinematics(self, target_pos):
 
         # 指定要控制的关节 ID
-        JOINT_ID = 7
+        JOINT_ID = 6
         # 定义期望的位姿，使用目标姿态的旋转矩阵和目标位置创建 SE3 对象
         oMdes = pin.SE3(np.eye(3), target_pos)
 
@@ -314,7 +306,7 @@ class z1_Simulator:
         # 定义最大迭代次数，防止算法陷入无限循环
         IT_MAX = 1000
         # 定义积分步长，用于更新关节角度
-        DT = 1e-2
+        DT = 1e-5
         # 定义阻尼因子，用于避免矩阵奇异
         damp = 1e-12
 
@@ -342,7 +334,7 @@ class z1_Simulator:
             q = pin.integrate(self.pin_model, q, v * DT)
 
         self.q_pin = q
-        return q.flatten().tolist()
+        return q
 
 if __name__ == '__main__':
     simulator = z1_Simulator()
