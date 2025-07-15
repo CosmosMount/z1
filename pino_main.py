@@ -1,4 +1,3 @@
-import ikpy.inverse_kinematics
 from isaacgym import gymapi
 from isaacgym import gymutil
 
@@ -7,8 +6,9 @@ import time
 import math
 import numpy as np
 
-from ikpy.chain import Chain
-import ikpy
+import pinocchio as pin
+from numpy.linalg import norm,solve
+
 
 
 class z1_Simulator:
@@ -175,9 +175,27 @@ class z1_Simulator:
         dof_states = self.gym.get_actor_dof_states(self.env, self.actor, gymapi.STATE_ALL)
         self.dof_targets = dof_states['pos'].copy()
 
-        active_mask = [False, True, True, True, True, True, True, False, False]
-        self.robot_chain = Chain.from_urdf_file("../z1_simulator/z1/urdf/z1.urdf", base_elements=['link00'], active_links_mask=active_mask)
-        self.robot_chain.plot(joints=[0,1,2,3,4,5,6,7,8], ax=None)
+        urdf_path = os.path.join(asset_root, asset_file)
+        self.pin_model = pin.buildModelFromUrdf(urdf_path)
+        self.pin_data  = self.pin_model.createData()
+
+        # 关节索引：Pinocchio 里末端连杆对应的 joint id
+        # 用名字找最保险，也可以用固定索引
+        # end_link_name = "gripperStator"
+        # self.pin_end_id = self.pin_model.getFrameId(end_link_name,pin.FrameType.BODY)
+
+        # 初始位姿（用于 IK 初值）
+        self.q_pin = pin.neutral(self.pin_model)   # 长度 = 模型总关节数
+        # print("[Pinocchio] model nq =", self.pin_model.nq, "end joint id =", self.pin_end_id)
+
+        # # 腕关节/连杆名字，请在 URDF 里确认
+        wrist_link_name = "gripperStator"        # 或 "wrist_3_link" / "tool0" 等
+        self.wrist_frame_id = self.pin_model.getFrameId(wrist_link_name,pin.FrameType.BODY)
+        print("[Pinocchio] wrist_frame_id =", self.wrist_frame_id)
+
+        # 前 5 个关节在 Pinocchio 中的索引（从 0 开始数）
+        self.arm_dofs = list(range(5))    # 即 q0,q1,q2,q3,q4
+
         
     def initialize_events(self):
 
@@ -196,7 +214,7 @@ class z1_Simulator:
             "joint_7": False, "shift": False
         }
 
-        transform = self.gym.get_rigid_transform(self.env, 8)
+        transform = self.gym.get_rigid_transform(self.env, 7)
         self.target_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
     
     def step(self):
@@ -228,7 +246,7 @@ class z1_Simulator:
                     print("Error: Invalid input. Please enter three numeric values separated by spaces.")
             
             if event.action == "show_coords" and event.value > 0:
-                transform = self.gym.get_rigid_transform(self.env, 7)
+                transform = self.gym.get_rigid_transform(self.env, 8)
                 current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
                 print(f"Current position: {current_position}")
 
@@ -241,7 +259,7 @@ class z1_Simulator:
             print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
             distance = np.linalg.norm(current_position - self.target_position)
 
-            if distance < 0.05 or self.steps_count > 100:
+            if distance < 0.05 or self.steps_count > 500:
 
                 self.target_reached = True
                 self.moving_to_target = False
@@ -250,15 +268,12 @@ class z1_Simulator:
             else:
 
                 self.gym.fetch_results(self.sim, True)
-                ik_solution = self.robot_chain.inverse_kinematics(self.target_position, "scalar")
-                # print(f"IK solution1: {ik_solution}")
-                # target_frame = np.eye(4)
-                # target_frame[:3, 3] = self.target_position
-                # ik_solution = self.robot_chain.inverse_kinematics_frame(target_frame)
-                # print(f"IK solution2: {ik_solution}")
-                # ik_solution = ikpy.inverse_kinematics.inverse_kinematic_optimization(target_frame=target_frame, max_iter=100, chain=self.robot_chain, optimizer="scalar");
-                # print(f"IK solution3: {ik_solution}")
-                self.dof_targets[:5] = np.array(ik_solution[1:6], dtype=np.float32)
+                # q_cmd = self.pin_ik(self.target_position)
+                # self.dof_targets[:6] = q_cmd.astype(np.float32)
+                # q_cmd_5 = self.pin_ik_wrist(self.target_position)   # 5 维
+                # self.dof_targets[:6] = q_cmd_5.astype(np.float32)   # 只写前 5 个
+                q = self.inverse_kinematics(self.target_position)
+                self.dof_targets[:6] = np.array(q[:6], dtype=np.float32)
 
         else:
 
@@ -284,6 +299,50 @@ class z1_Simulator:
     def end(self):
         self.gym.destroy_viewer(self.viewer)
         self.gym.destroy_sim(self.sim)
+    
+    def inverse_kinematics(self, target_pos):
+
+        # 指定要控制的关节 ID
+        JOINT_ID = 7
+        # 定义期望的位姿，使用目标姿态的旋转矩阵和目标位置创建 SE3 对象
+        oMdes = pin.SE3(np.eye(3), target_pos)
+
+        # 将当前关节角度赋值给变量 q，作为迭代的初始值
+        q = self.q_pin.copy()
+        # 定义收敛阈值，当误差小于该值时认为算法收敛
+        eps = 1e-4
+        # 定义最大迭代次数，防止算法陷入无限循环
+        IT_MAX = 1000
+        # 定义积分步长，用于更新关节角度
+        DT = 1e-2
+        # 定义阻尼因子，用于避免矩阵奇异
+        damp = 1e-12
+
+        # 初始化迭代次数为 0
+        for _ in range(IT_MAX):
+            # 进行正运动学计算，得到当前关节角度下机器人各关节的位置和姿态
+            pin.forwardKinematics(self.pin_model, self.pin_data, q)
+            # 计算目标位姿到当前位姿之间的变换
+            iMd = self.pin_data.oMi[JOINT_ID].actInv(oMdes)
+            # 通过李群对数映射将变换矩阵转换为 6 维误差向量（包含位置误差和方向误差），用于量化当前位姿与目标位姿的差异
+            err = pin.log(iMd).vector
+
+            # 判断误差是否小于收敛阈值，如果是则认为算法收敛
+            if norm(err) < eps:
+                success = True
+                break
+
+            # 计算当前关节角度下的雅可比矩阵，关节速度与末端速度的映射关系
+            J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
+            # 对雅可比矩阵进行变换，转换到李代数空间，以匹配误差向量的坐标系，同时取反以调整误差方向
+            J = -np.dot(pin.Jlog6(iMd.inverse()), J)
+            # 使用阻尼最小二乘法求解关节速度
+            v = -J.T.dot(solve(J.dot(J.T) + damp * np.eye(6), err))
+            # 根据关节速度更新关节角度
+            q = pin.integrate(self.pin_model, q, v * DT)
+
+        self.q_pin = q
+        return q.flatten().tolist()
 
 if __name__ == '__main__':
     simulator = z1_Simulator()
