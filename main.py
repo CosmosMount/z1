@@ -176,8 +176,14 @@ class z1_Simulator:
         self.dof_targets = dof_states['pos'].copy()
 
         active_mask = [False, True, True, True, True, True, True, False, False]
-        self.robot_chain = Chain.from_urdf_file("../z1_simulator/z1/urdf/z1.urdf", base_elements=['link00'], active_links_mask=active_mask)
-        self.robot_chain.plot(joints=[0,1,2,3,4,5,6,7,8], ax=None)
+        # self.robot_chain = Chain.from_urdf_file("../z1_simulator/z1/urdf/z1.urdf", base_elements=['link00'], active_links_mask=active_mask)
+        full_chain = Chain.from_urdf_file("../z1_simulator/z1/urdf/z1.urdf", base_elements=['link00'])
+        sub_links = full_chain.links[:8]          # 0-base_link,1-j0,…,6-j6
+        self.robot_chain = Chain(
+                        base_elements=['link00'],
+                        links=sub_links,
+                        active_links_mask=[False, True, True, True, True, True, False, False])
+        # self.robot_chain.plot(joints=[0,1,2,3,4,5,6,7,8], ax=None)
         
     def initialize_events(self):
 
@@ -251,7 +257,7 @@ class z1_Simulator:
 
                 self.gym.fetch_results(self.sim, True)
                 ik_solution = self.robot_chain.inverse_kinematics(self.target_position, "scalar")
-                # print(f"IK solution1: {ik_solution}")
+                print(f"IK solution1: {ik_solution}")
                 # target_frame = np.eye(4)
                 # target_frame[:3, 3] = self.target_position
                 # ik_solution = self.robot_chain.inverse_kinematics_frame(target_frame)

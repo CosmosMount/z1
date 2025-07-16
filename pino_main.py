@@ -81,66 +81,62 @@ class z1_Simulator:
         self.gym.add_ground(self.sim, plane_params)
     
     def build_objects(self):
-        # 加载桌子资产
+        # Load table assets
         table_dims = gymapi.Vec3(0.4, 0.4, 0.3)  # 长、宽、高
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
         table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, asset_options)
 
-        # 创建第一张桌子
+        # Create the first table
         table1_pose = gymapi.Transform()
         table1_pose.p = gymapi.Vec3(0.0, 0.5, table_dims.z/2)
         self.gym.create_actor(self.env, table_asset, table1_pose, "table1", 0, 0)
 
-        # 创建第二张桌子
+        # Create the second table
         table2_pose = gymapi.Transform()
         table2_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z/2)
         self.gym.create_actor(self.env, table_asset, table2_pose, "table2", 0, 0)
 
-        # 加载物块资产
+        # Load block assets
         block_dims = gymapi.Vec3(0.05, 0.02, 0.1)  # 立方体
         asset_options = gymapi.AssetOptions()
         block_asset = self.gym.create_box(self.sim, block_dims.x, block_dims.y, block_dims.z, asset_options)
 
-        # 在第二张桌子上放置物块
+        # Place the block on the table
         block_pose = gymapi.Transform()
         block_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + block_dims.z/2)
         block_actor = self.gym.create_actor(self.env, block_asset, block_pose, "block", 0, 0)
 
-        # 设置物块属性以便抓取
+        # Set block physical properties
         props = self.gym.get_actor_rigid_body_properties(self.env, block_actor)
-        props[0].mass = 0.1  # 设置质量
+        props[0].mass = 0.1  # Mass
         self.gym.set_actor_rigid_body_properties(self.env, block_actor, props)
 
         props = self.gym.get_actor_rigid_shape_properties(self.env, block_actor)
         props[0].friction = 10.0
         self.gym.set_actor_rigid_shape_properties(self.env, block_actor, props)
 
-        # 输出物块坐标
         block_transform = self.gym.get_rigid_transform(self.env, block_actor)
         print(f"Block position: {block_transform.p.x - block_dims.x/2}, {block_transform.p.y - block_dims.y/2}, {block_transform.p.z - block_dims.z/2}")
 
 
-        # ball_density = 1.0  # 球的密度
-        # ball_radius = 0.02  # 球的半径
+        ball_density = 1.0
+        ball_radius = 0.02
 
-        # # 创建球形资产
-        # asset_options = gymapi.AssetOptions()
-        # asset_options.density = 0.5
-        # asset_options.fix_base_link = False  # 不固定，可以移动
-        # ball_asset = self.gym.create_sphere(self.sim, ball_radius, asset_options)
+        # Create a sphere asset for the ball
+        asset_options = gymapi.AssetOptions()
+        asset_options.density = 0.5
+        asset_options.fix_base_link = False  # Movable
+        ball_asset = self.gym.create_sphere(self.sim, ball_radius, asset_options)
 
-        # # 设置物块初始位置
-        # ball_pose = gymapi.Transform()
-        # ball_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + ball_radius)
+        ball_pose = gymapi.Transform()
+        ball_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + ball_radius)
 
-        # # 创建物块actor
-        # ball_actor = self.gym.create_actor(self.env, ball_asset, ball_pose, "ball", 0, 0)
+        ball_actor = self.gym.create_actor(self.env, ball_asset, ball_pose, "ball", 0, 0)
 
-        # # 设置物块物理属性
-        # props = self.gym.get_actor_rigid_body_properties(self.env, ball_actor)
-        # props[0].mass = (4/3) * 3.14159 * ball_radius**3 * ball_density  # 计算质量
-        # self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
+        props = self.gym.get_actor_rigid_body_properties(self.env, ball_actor)
+        props[0].mass = (4/3) * 3.14159 * ball_radius**3 * ball_density
+        self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
     
     def initialize_arm(self):
         asset_root = "../z1_simulator/z1/urdf"
@@ -179,8 +175,8 @@ class z1_Simulator:
         self.pin_model = pin.buildModelFromUrdf(urdf_path)
         self.pin_data  = self.pin_model.createData()
 
-        # 初始位姿（用于 IK 初值）
-        self.q_pin = pin.neutral(self.pin_model)   # 长度 = 模型总关节数
+        # Initialize Pinocchio model and pose
+        self.q_pin = pin.neutral(self.pin_model)
         self.q_home = pin.neutral(self.pin_model)
 
         
@@ -234,7 +230,7 @@ class z1_Simulator:
                     print("Error: Invalid input. Please enter three numeric values separated by spaces.")
             
             if event.action == "show_coords" and event.value > 0:
-                transform = self.gym.get_rigid_transform(self.env, 8)
+                transform = self.gym.get_rigid_transform(self.env, 7)
                 current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
                 print(f"Current position: {current_position}")
 
@@ -265,7 +261,7 @@ class z1_Simulator:
 
                 self.gym.fetch_results(self.sim, True)
                 q = self.inverse_kinematics(self.target_position)
-                self.dof_targets[:6] = q[:6].astype(np.float32)  # 只写前 6 个关节
+                self.dof_targets[:5] = q[:5].astype(np.float32)  # Only use the first 5 joints for IK
 
         else:
 
@@ -294,43 +290,35 @@ class z1_Simulator:
     
     def inverse_kinematics(self, target_pos):
 
-        # 指定要控制的关节 ID
         JOINT_ID = 6
-        # 定义期望的位姿，使用目标姿态的旋转矩阵和目标位置创建 SE3 对象
         oMdes = pin.SE3(np.eye(3), target_pos)
 
-        # 将当前关节角度赋值给变量 q，作为迭代的初始值
         q = self.q_pin.copy()
-        # 定义收敛阈值，当误差小于该值时认为算法收敛
         eps = 1e-4
-        # 定义最大迭代次数，防止算法陷入无限循环
         IT_MAX = 1000
-        # 定义积分步长，用于更新关节角度
-        DT = 1e-5
-        # 定义阻尼因子，用于避免矩阵奇异
+        DT = 1e-4
         damp = 1e-12
 
-        # 初始化迭代次数为 0
         for _ in range(IT_MAX):
-            # 进行正运动学计算，得到当前关节角度下机器人各关节的位置和姿态
+            # Forward kinematics to compute the current wrist pose
             pin.forwardKinematics(self.pin_model, self.pin_data, q)
-            # 计算目标位姿到当前位姿之间的变换
+            # Calculate the current wrist pose in the world frame
             iMd = self.pin_data.oMi[JOINT_ID].actInv(oMdes)
-            # 通过李群对数映射将变换矩阵转换为 6 维误差向量（包含位置误差和方向误差），用于量化当前位姿与目标位姿的差异
+            # Calculate the error vector in the Lie algebra space
             err = pin.log(iMd).vector
 
-            # 判断误差是否小于收敛阈值，如果是则认为算法收敛
+            # Check if the error is within the acceptable range
             if norm(err) < eps:
                 success = True
                 break
 
-            # 计算当前关节角度下的雅可比矩阵，关节速度与末端速度的映射关系
+            # Calculate the Jacobian matrix for the wrist joint
             J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
-            # 对雅可比矩阵进行变换，转换到李代数空间，以匹配误差向量的坐标系，同时取反以调整误差方向
+            # Calculate the Jacobian matrix in the Lie algebra space
             J = -np.dot(pin.Jlog6(iMd.inverse()), J)
-            # 使用阻尼最小二乘法求解关节速度
+            # Use the damped least squares method to compute the joint velocity
             v = -J.T.dot(solve(J.dot(J.T) + damp * np.eye(6), err))
-            # 根据关节速度更新关节角度
+            # Update the joint positions using the computed velocity
             q = pin.integrate(self.pin_model, q, v * DT)
 
         self.q_pin = q
