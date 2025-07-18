@@ -8,12 +8,12 @@ import numpy as np
 
 import pinocchio as pin
 from numpy.linalg import norm,solve
+from scipy.spatial.transform import Rotation as R
 
-
-
-class z1_Simulator:
+class z1_simultor:
 
     def __init__(self):
+
         self.gym = gymapi.acquire_gym()
         self.create_sim()
         self.create_env()
@@ -23,13 +23,13 @@ class z1_Simulator:
         # self.build_objects()
 
         self.initialize_arm()
-        self.initialize_events()
 
         self.moving_to_target = False
         self.target_reached = False
         self.steps_count = 0
 
     def create_sim(self):
+
         sim_params = gymapi.SimParams()
         sim_params.dt = 1 / 60
         sim_params.substeps = 2
@@ -51,6 +51,7 @@ class z1_Simulator:
             raise Exception("Failed to create sim")
         
     def create_viewer(self):
+
         self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
         if self.viewer is None:
             raise Exception("Failed to create viewer")
@@ -66,6 +67,7 @@ class z1_Simulator:
             os.system(f"wmctrl -i -r {window_id} -b add,above")
 
     def create_env(self):
+
         num_envs = 1
         num_per_row = int(math.sqrt(num_envs))
         env_spacing = 1.25
@@ -76,11 +78,13 @@ class z1_Simulator:
         self.env = self.gym.create_env(self.sim, env_lower, env_upper, num_per_row)
 
     def build_ground(self):
+
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0, 0, 1)
         self.gym.add_ground(self.sim, plane_params)
     
     def build_objects(self):
+
         # Load table assets
         table_dims = gymapi.Vec3(0.4, 0.4, 0.3)  # 长、宽、高
         asset_options = gymapi.AssetOptions()
@@ -139,6 +143,7 @@ class z1_Simulator:
         self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
     
     def initialize_arm(self):
+
         asset_root = "../z1_teleop/z1/urdf"
         asset_file = "z1.urdf"
         asset_options = gymapi.AssetOptions()
@@ -179,104 +184,21 @@ class z1_Simulator:
         self.q_pin = pin.neutral(self.pin_model)
         self.q_home = pin.neutral(self.pin_model)
 
-        
-    def initialize_events(self):
-
-        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_I, "input_coords")
-        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_S, "show_coords")
-        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_R, "reset_all")
-        
-        for i in range(1, 8):
-            self.gym.subscribe_viewer_keyboard_event(self.viewer, getattr(gymapi, f"KEY_{i}"), f"joint_{i}")
-
-        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_LEFT_SHIFT, "shift")
-        self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_RIGHT_SHIFT, "shift")
-
-        self.key_states = {
-            "joint_1": False, "joint_2": False, "joint_3": False,
-            "joint_4": False, "joint_5": False, "joint_6": False,
-            "joint_7": False, "shift": False
-        }
-
-        transform = self.gym.get_rigid_transform(self.env, 7)
-        self.target_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
-    
-    def step(self):
+    def step(self,target):
 
         if self.gym.query_viewer_has_closed(self.viewer):
             print("Viewer closed, exiting...")
             self.end()
             exit(0)
-        
-        events = self.gym.query_viewer_action_events(self.viewer)
-        for event in events:
-            if event.action == "input_coords" and event.value > 0:
-                try:
 
-                    user_input = input("Please input the target coordinate (x y z), split by spaces: ")
-                    coords = [float(x) for x in user_input.split()]
-                    
-                    if len(coords) == 3:
-                        self.target_position = np.array(coords,dtype=np.float32)
-                        print(f"New target position: {self.target_position}")
-                        self.moving_to_target = True
-                        self.target_reached = False
-                        self.steps_count = 0
+        self.gym.fetch_results(self.sim, True)
+        target_position = np.array(target[:3],dtype=np.float32)
+        q = self.inverse_kinematics(target_position)
+        self.dof_targets[:5] = q[:5].astype(np.float32)
+        euler = R.from_quat(target[3:]).as_euler('xyz')
+        self.dof_targets[5] = euler[2]
 
-                    else:
-                        print("Error: Please input exactly three coordinates (x, y, z)")
-
-                except ValueError:
-                    print("Error: Invalid input. Please enter three numeric values separated by spaces.")
-            
-            if event.action == "show_coords" and event.value > 0:
-                transform = self.gym.get_rigid_transform(self.env, 7)
-                current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
-                print(f"Current position: {current_position}")
-
-            if event.action == "reset_all":
-                self.dof_targets[:6] = self.q_home[:6]
-                self.q_pin[:] = self.q_home
-
-        if self.moving_to_target and not self.target_reached:
-
-            self.steps_count += 1
-
-            transform = self.gym.get_rigid_transform(self.env, 7)
-            current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
-            print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
-            distance = np.linalg.norm(current_position - self.target_position)
-
-            if distance < 0.05 or self.steps_count > 500:
-
-                self.target_reached = True
-                self.moving_to_target = False
-                print("Target position reached." if distance < 0.05 else "Steps limit exceeded, target cannot be reached.")
-                if self.steps_count > 500:
-                    self.dof_targets[:6] = self.q_home[:6]
-                    self.q_pin[:] = self.q_home
-
-
-            else:
-
-                self.gym.fetch_results(self.sim, True)
-                q = self.inverse_kinematics(self.target_position)
-                self.dof_targets[:5] = q[:5].astype(np.float32)  # Only use the first 5 joints for IK
-
-        else:
-
-            for event in events:
-                if event.action in self.key_states:
-                    self.key_states[event.action] = event.value > 0
-
-            for i in range(7):
-                action_key = f"joint_{i+1}"
-                if self.key_states[action_key]:
-                    direction = -1 if self.key_states["shift"] else 1
-                    if i == 0:
-                        self.dof_targets[i] += direction * 0.05
-                    else:
-                        self.dof_targets[i] += direction * 0.005
+        # self.gym.set_dof_position_target(self.env, self.actor, 7, angle_z)
 
         self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
@@ -323,14 +245,20 @@ class z1_Simulator:
 
         self.q_pin = q
         return q
-
-if __name__ == '__main__':
-    simulator = z1_Simulator()
+    
+    def get_wrist_pose(self):
+        # Get the wrist pose in the world frame
+        wrist_pose = self.gym.get_rigid_transform(self.env, self.actor, 7)
+        return np.array([wrist_pose.p.x, wrist_pose.p.y, wrist_pose.p.z,
+                         wrist_pose.r.x, wrist_pose.r.y, wrist_pose.r.z, wrist_pose.r.w])
+    
+if __name__ == "__main__":
+    simulator = z1_simultor()
     try:
         while True:
-            simulator.step()
+            simulator.gym.simulate(simulator.sim)
+            simulator.step([0.5,0,0.35,0.7071, 0.7071, 0.0, 0.0])
     except KeyboardInterrupt:
+        print("Closing simulator...")
+    finally:
         simulator.end()
-        exit(0)
-
-

@@ -11,7 +11,7 @@ from numpy.linalg import norm,solve
 
 
 
-class z1_Simulator:
+class z1_simulator:
 
     def __init__(self):
         self.gym = gymapi.acquire_gym()
@@ -233,6 +233,7 @@ class z1_Simulator:
                 transform = self.gym.get_rigid_transform(self.env, 7)
                 current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
                 print(f"Current position: {current_position}")
+                print(transform)
 
             if event.action == "reset_all":
                 self.dof_targets[:6] = self.q_home[:6]
@@ -325,7 +326,7 @@ class z1_Simulator:
         return q
 
 if __name__ == '__main__':
-    simulator = z1_Simulator()
+    simulator = z1_simulator()
     try:
         while True:
             simulator.step()
