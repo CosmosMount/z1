@@ -86,14 +86,6 @@ class VRTracker:
                 with self.connected.get_lock():
                     self.connected.value = True
         try:
-            # with self.left_hand_shared.get_lock():  # Use the lock to ensure thread-safe updates
-            #     self.left_hand_shared[:] = event.value["leftHand"]
-            # with self.right_hand_shared.get_lock():
-            #     self.right_hand_shared[:] = event.value["rightHand"]
-            # with self.left_landmarks_shared.get_lock():
-            #     self.left_landmarks_shared[:] = np.array(event.value["leftLandmarks"]).flatten()
-            # with self.right_landmarks_shared.get_lock():
-            #     self.right_landmarks_shared[:] = np.array(event.value["rightLandmarks"]).flatten()
             self.left_controller_shared[:] = event.value["left"]
             self.right_controller_shared[:] = event.value["right"]
             print(f"right controller: {self.right_controller_shared[:]}")  # Debugging line
@@ -220,3 +212,8 @@ class VRTracker:
         # with self.right_controller_shared.get_lock():
         #     return np.array(self.right_controller_shared).reshape(4, 4, order="F")
         return np.array(self.right_controller_shared).reshape(4, 4, order="F")
+    @property
+    def head_matrix(self):
+        # with self.head_matrix_shared.get_lock():
+        #     return np.array(self.head_matrix_shared[:]).reshape(4, 4, order="F")
+        return np.array(self.head_matrix_shared[:]).reshape(4, 4, order="F")

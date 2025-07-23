@@ -4,9 +4,11 @@ from isaacgym import gymutil
 import os
 import time
 import math
+import ikpy
 import numpy as np
-
 import pinocchio as pin
+
+from ikpy.chain import Chain
 from numpy.linalg import norm,solve
 from scipy.spatial.transform import Rotation as R
 
@@ -56,15 +58,35 @@ class z1Simulator:
         if self.viewer is None:
             raise Exception("Failed to create viewer")
 
-        cam_pos = gymapi.Vec3(1.0, 1.0, 1.0)
-        look_at = gymapi.Vec3(0.0, 0.0, 0.0)
+        cam_pos = gymapi.Vec3(1, 1, 1)
+        look_at = gymapi.Vec3(-0.6, 0, 1)
 
         self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, look_at)
 
-        # Set viewer window always on top
-        window_id = os.popen("wmctrl -l | grep 'Isaac Gym' | awk '{print $1}'").read().strip()
-        if window_id:
-            os.system(f"wmctrl -i -r {window_id} -b add,above")
+        self.left_cam_offset = np.array([0, 0.033, 0])
+        self.right_cam_offset = np.array([0, -0.033, 0])
+        self.cam_lookat_offset = np.array([1, 0, 0])
+        self.cam_pos = np.array([-2, 0, 1])
+
+        # create left 1st preson viewer
+        camera_props = gymapi.CameraProperties()
+        camera_props.width = 1280
+        camera_props.height = 720
+        self.left_camera_handle = self.gym.create_camera_sensor(self.env, camera_props)
+        self.gym.set_camera_location(self.left_camera_handle,
+                                     self.env,
+                                     gymapi.Vec3(*(self.cam_pos + self.left_cam_offset)),
+                                     gymapi.Vec3(*(self.cam_pos + self.left_cam_offset + self.cam_lookat_offset)))
+        
+        # create right 1st preson viewer
+        camera_props = gymapi.CameraProperties()
+        camera_props.width = 1280
+        camera_props.height = 720
+        self.right_camera_handle = self.gym.create_camera_sensor(self.env, camera_props)
+        self.gym.set_camera_location(self.right_camera_handle,
+                                     self.env,
+                                     gymapi.Vec3(*(self.cam_pos + self.right_cam_offset)),
+                                     gymapi.Vec3(*(self.cam_pos + self.right_cam_offset + self.cam_lookat_offset)))
 
     def create_env(self):
 
@@ -180,35 +202,70 @@ class z1Simulator:
         self.pin_model = pin.buildModelFromUrdf(urdf_path)
         self.pin_data  = self.pin_model.createData()
 
-        # Initialize Pinocchio model and pose
         self.q_pin = pin.neutral(self.pin_model)
         self.q_home = pin.neutral(self.pin_model)
 
-    def step(self,target):
+        # active_mask = [False, True, True, True, True, True, True]
+        # full_chain = Chain.from_urdf_file(urdf_path, base_elements=['link00'])
+        # start_index = next(i for i, l in enumerate(full_chain.links) if l.name == "Base link")
+        # end_index = next(i for i, l in enumerate(full_chain.links) if l.name == "joint6")
+        # sub_links = full_chain.links[start_index:end_index + 1]
+        # self.robot_chain = Chain(name="z1_subchain", links=sub_links, active_mask=active_mask)
+
+    def step(self,target,head_rmat=None):
 
         if self.gym.query_viewer_has_closed(self.viewer):
             print("Viewer closed, exiting...")
             self.end()
             exit(0)
 
-        self.gym.fetch_results(self.sim, True)
         target_position = np.array(target[:3],dtype=np.float32)
+        euler = R.from_quat(target[3:]).as_euler('xyz')
+
         q = self.inverse_kinematics(target_position)
         self.dof_targets[:5] = q[:5].astype(np.float32)
-        euler = R.from_quat(target[3:]).as_euler('xyz')
-        self.dof_targets[5] = euler[2]
+        self.dof_targets[5] = euler[1]
 
-        # self.gym.set_dof_position_target(self.env, self.actor, 7, angle_z)
+        # ik_solution = self.robot_chain.inverse_kinematics(target_position, "scalar")
+        # self.dof_targets[:6] = np.array(ik_solution[1:8], dtype=np.float32)
+        # self.dof_targets[6] = euler[2]
 
         self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
+
+        # step the physics
         self.gym.simulate(self.sim)
+        self.gym.fetch_results(self.sim, True)
         self.gym.step_graphics(self.sim)
+        self.gym.render_all_camera_sensors(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+
+        curr_lookat_offset = self.cam_lookat_offset @ head_rmat.T
+        curr_left_offset = self.left_cam_offset @ head_rmat.T
+        curr_right_offset = self.right_cam_offset @ head_rmat.T
+
+        self.gym.set_camera_location(self.left_camera_handle,
+                                     self.env,
+                                     gymapi.Vec3(*(self.cam_pos + curr_left_offset)),
+                                     gymapi.Vec3(*(self.cam_pos + curr_left_offset + curr_lookat_offset)))
+        self.gym.set_camera_location(self.right_camera_handle,
+                                     self.env,
+                                     gymapi.Vec3(*(self.cam_pos + curr_right_offset)),
+                                     gymapi.Vec3(*(self.cam_pos + curr_right_offset + curr_lookat_offset)))
+        left_image = self.gym.get_camera_image(self.sim, self.env, self.left_camera_handle, gymapi.IMAGE_COLOR)
+        right_image = self.gym.get_camera_image(self.sim, self.env, self.right_camera_handle, gymapi.IMAGE_COLOR)
+        left_image = left_image.reshape(left_image.shape[0], -1, 4)[..., :3]
+        right_image = right_image.reshape(right_image.shape[0], -1, 4)[..., :3]
+
         self.gym.draw_viewer(self.viewer, self.sim, True)
+        self.gym.sync_frame_time(self.sim)
+
+        return left_image, right_image
 
     def end(self):
         self.gym.destroy_viewer(self.viewer)
         self.gym.destroy_sim(self.sim)
+    
     
     def inverse_kinematics(self, target_pos):
 
