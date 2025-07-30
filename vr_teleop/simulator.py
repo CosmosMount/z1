@@ -205,30 +205,24 @@ class z1Simulator:
         self.q_pin = pin.neutral(self.pin_model)
         self.q_home = pin.neutral(self.pin_model)
 
-        # active_mask = [False, True, True, True, True, True, True]
-        # full_chain = Chain.from_urdf_file(urdf_path, base_elements=['link00'])
-        # start_index = next(i for i, l in enumerate(full_chain.links) if l.name == "Base link")
-        # end_index = next(i for i, l in enumerate(full_chain.links) if l.name == "joint6")
-        # sub_links = full_chain.links[start_index:end_index + 1]
-        # self.robot_chain = Chain(name="z1_subchain", links=sub_links, active_mask=active_mask)
-
-    def step(self,target,head_rmat=None):
+    def step(self,target,head_rmat=None,gripper_angle=0.0):
 
         if self.gym.query_viewer_has_closed(self.viewer):
             print("Viewer closed, exiting...")
             self.end()
             exit(0)
 
-        target_position = np.array(target[:3],dtype=np.float32)
-        euler = R.from_quat(target[3:]).as_euler('xyz')
+        self.draw_point_np(target[:3, 3])
 
-        q = self.inverse_kinematics(target_position)
-        self.dof_targets[:5] = q[:5].astype(np.float32)
-        self.dof_targets[5] = euler[1]
+        dof_states = self.gym.get_actor_dof_states(self.env, self.actor, gymapi.STATE_ALL)
+        self.q_pin = dof_states['pos'].copy()
 
-        # ik_solution = self.robot_chain.inverse_kinematics(target_position, "scalar")
-        # self.dof_targets[:6] = np.array(ik_solution[1:8], dtype=np.float32)
-        # self.dof_targets[6] = euler[2]
+        q = self.inverse_kinematics(target)
+        self.dof_targets[:6] = q[:6].astype(np.float32)
+        if (target[2,3] < 0):
+            self.dof_targets[:6] = self.q_home[:6]
+
+        self.dof_targets[6] = gripper_angle
 
         self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
@@ -267,10 +261,10 @@ class z1Simulator:
         self.gym.destroy_sim(self.sim)
     
     
-    def inverse_kinematics(self, target_pos):
+    def inverse_kinematics(self, target):
 
-        JOINT_ID = 6
-        oMdes = pin.SE3(np.eye(3), target_pos)
+        JOINT_ID = 7
+        oMdes = pin.SE3(target[:3, :3], target[:3,3])
 
         q = self.q_pin.copy()
         eps = 1e-4
@@ -308,6 +302,20 @@ class z1Simulator:
         wrist_pose = self.gym.get_rigid_transform(self.env, self.actor, 7)
         return np.array([wrist_pose.p.x, wrist_pose.p.y, wrist_pose.p.z,
                          wrist_pose.r.x, wrist_pose.r.y, wrist_pose.r.z, wrist_pose.r.w])
+
+    def draw_point_np(self, pos_np, radius=0.05, color=(1.0, 0.3, 0.3)):
+        pos_vec3 = gymapi.Vec3(*pos_np)
+        color_vec3 = gymapi.Vec3(*color)
+        # gymutil.draw_sphere(radius=radius,
+        #                     pose=gymapi.Transform(p=pos_vec3),
+        #                     color=color_vec3,
+        #                     gym=self.gym,
+        #                     viewer=self.viewer,
+        #                     sim=self.sim)
+        self.gym.clear_lines(self.viewer)
+        sphere_geom = gymutil.WireframeSphereGeometry(radius=0.05, num_lats=10, num_lons=10, color=color)
+        gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.env, gymapi.Transform(p=pos_vec3))
+
     
 if __name__ == "__main__":
     simulator = z1Simulator()

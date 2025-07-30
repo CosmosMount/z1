@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-from utils import grd_yup2grd_zup, T_base_to_link06, mat_update, fast_mat_inv
+from utils import grd_yup2grd_zup, M_bias, mat_update, fast_mat_inv
 
 class VuerPreprocessor:
     def __init__(self):
@@ -23,14 +23,15 @@ class VuerPreprocessor:
         self.vuer_right_controller_mat = grd_yup2grd_zup @ self.vuer_right_controller_mat @ fast_mat_inv(grd_yup2grd_zup)
         self.vuer_left_controller_mat = grd_yup2grd_zup @ self.vuer_left_controller_mat @ fast_mat_inv(grd_yup2grd_zup)
 
-        if self.connected:
-            if not self.initialized:
-                self.T_align_right = T_base_to_link06 @ fast_mat_inv(self.vuer_right_controller_mat)
-                self.initialized = True
+        # if self.connected:
+        #     if not self.initialized:
+        #         self.T_align_right = T_base_to_link06 @ fast_mat_inv(self.vuer_right_controller_mat)
+        #         self.initialized = True
 
-        rel_right_controller_mat = self.T_align_right @ self.vuer_right_controller_mat
+        rel_right_controller_mat = fast_mat_inv(head_mat) @ self.vuer_right_controller_mat + M_bias
         rel_left_controller_mat = self.vuer_left_controller_mat
+        raw_right_mat = self.vuer_right_controller_mat.copy()
 
-        return head_mat, rel_right_controller_mat, rel_left_controller_mat
+        return head_mat, raw_right_mat, rel_right_controller_mat, rel_left_controller_mat
     
     

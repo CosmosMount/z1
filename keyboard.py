@@ -80,66 +80,66 @@ class z1_simulator:
         plane_params.normal = gymapi.Vec3(0, 0, 1)
         self.gym.add_ground(self.sim, plane_params)
     
-    def build_objects(self):
-        # Load table assets
-        table_dims = gymapi.Vec3(0.4, 0.4, 0.3)  # 长、宽、高
-        asset_options = gymapi.AssetOptions()
-        asset_options.fix_base_link = True
-        table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, asset_options)
+    # def build_objects(self):
+    #     # Load table assets
+    #     table_dims = gymapi.Vec3(0.4, 0.4, 0.3)  # 长、宽、高
+    #     asset_options = gymapi.AssetOptions()
+    #     asset_options.fix_base_link = True
+    #     table_asset = self.gym.create_box(self.sim, table_dims.x, table_dims.y, table_dims.z, asset_options)
 
-        # Create the first table
-        table1_pose = gymapi.Transform()
-        table1_pose.p = gymapi.Vec3(0.0, 0.5, table_dims.z/2)
-        self.gym.create_actor(self.env, table_asset, table1_pose, "table1", 0, 0)
+    #     # Create the first table
+    #     table1_pose = gymapi.Transform()
+    #     table1_pose.p = gymapi.Vec3(0.0, 0.5, table_dims.z/2)
+    #     self.gym.create_actor(self.env, table_asset, table1_pose, "table1", 0, 0)
 
-        # Create the second table
-        table2_pose = gymapi.Transform()
-        table2_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z/2)
-        self.gym.create_actor(self.env, table_asset, table2_pose, "table2", 0, 0)
+    #     # Create the second table
+    #     table2_pose = gymapi.Transform()
+    #     table2_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z/2)
+    #     self.gym.create_actor(self.env, table_asset, table2_pose, "table2", 0, 0)
 
-        # Load block assets
-        block_dims = gymapi.Vec3(0.05, 0.02, 0.1)  # 立方体
-        asset_options = gymapi.AssetOptions()
-        block_asset = self.gym.create_box(self.sim, block_dims.x, block_dims.y, block_dims.z, asset_options)
+    #     # Load block assets
+    #     block_dims = gymapi.Vec3(0.05, 0.02, 0.1)  # 立方体
+    #     asset_options = gymapi.AssetOptions()
+    #     block_asset = self.gym.create_box(self.sim, block_dims.x, block_dims.y, block_dims.z, asset_options)
 
-        # Place the block on the table
-        block_pose = gymapi.Transform()
-        block_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + block_dims.z/2)
-        block_actor = self.gym.create_actor(self.env, block_asset, block_pose, "block", 0, 0)
+    #     # Place the block on the table
+    #     block_pose = gymapi.Transform()
+    #     block_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + block_dims.z/2)
+    #     block_actor = self.gym.create_actor(self.env, block_asset, block_pose, "block", 0, 0)
 
-        # Set block physical properties
-        props = self.gym.get_actor_rigid_body_properties(self.env, block_actor)
-        props[0].mass = 0.1  # Mass
-        self.gym.set_actor_rigid_body_properties(self.env, block_actor, props)
+    #     # Set block physical properties
+    #     props = self.gym.get_actor_rigid_body_properties(self.env, block_actor)
+    #     props[0].mass = 0.1  # Mass
+    #     self.gym.set_actor_rigid_body_properties(self.env, block_actor, props)
 
-        props = self.gym.get_actor_rigid_shape_properties(self.env, block_actor)
-        props[0].friction = 10.0
-        self.gym.set_actor_rigid_shape_properties(self.env, block_actor, props)
+    #     props = self.gym.get_actor_rigid_shape_properties(self.env, block_actor)
+    #     props[0].friction = 10.0
+    #     self.gym.set_actor_rigid_shape_properties(self.env, block_actor, props)
 
-        block_transform = self.gym.get_rigid_transform(self.env, block_actor)
-        print(f"Block position: {block_transform.p.x - block_dims.x/2}, {block_transform.p.y - block_dims.y/2}, {block_transform.p.z - block_dims.z/2}")
+    #     block_transform = self.gym.get_rigid_transform(self.env, block_actor)
+    #     print(f"Block position: {block_transform.p.x - block_dims.x/2}, {block_transform.p.y - block_dims.y/2}, {block_transform.p.z - block_dims.z/2}")
 
 
-        ball_density = 1.0
-        ball_radius = 0.02
+    #     ball_density = 1.0
+    #     ball_radius = 0.02
 
-        # Create a sphere asset for the ball
-        asset_options = gymapi.AssetOptions()
-        asset_options.density = 0.5
-        asset_options.fix_base_link = False  # Movable
-        ball_asset = self.gym.create_sphere(self.sim, ball_radius, asset_options)
+    #     # Create a sphere asset for the ball
+    #     asset_options = gymapi.AssetOptions()
+    #     asset_options.density = 0.5
+    #     asset_options.fix_base_link = False  # Movable
+    #     ball_asset = self.gym.create_sphere(self.sim, ball_radius, asset_options)
 
-        ball_pose = gymapi.Transform()
-        ball_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + ball_radius)
+    #     ball_pose = gymapi.Transform()
+    #     ball_pose.p = gymapi.Vec3(0.5, 0.0, table_dims.z + ball_radius)
 
-        ball_actor = self.gym.create_actor(self.env, ball_asset, ball_pose, "ball", 0, 0)
+    #     ball_actor = self.gym.create_actor(self.env, ball_asset, ball_pose, "ball", 0, 0)
 
-        props = self.gym.get_actor_rigid_body_properties(self.env, ball_actor)
-        props[0].mass = (4/3) * 3.14159 * ball_radius**3 * ball_density
-        self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
+    #     props = self.gym.get_actor_rigid_body_properties(self.env, ball_actor)
+    #     props[0].mass = (4/3) * 3.14159 * ball_radius**3 * ball_density
+    #     self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
     
     def initialize_arm(self):
-        asset_root = "../assets/z1/urdf"
+        asset_root = "./assets/z1/urdf"
         asset_file = "z1.urdf"
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
@@ -179,13 +179,13 @@ class z1_simulator:
         self.q_pin = pin.neutral(self.pin_model)
         self.q_home = pin.neutral(self.pin_model)
 
-        transform = self.gym.get_rigid_transform(self.env, 7)
-        T_base_to_link06 = np.eye(4)
-        T_base_to_link06[:3, :3] = R.from_quat([transform.r.x, transform.r.y, transform.r.z, transform.r.w]).as_matrix()
-        T_base_to_link06[:3, 3] = np.array([transform.p.x, transform.p.y, transform.p.z])
-        print(f"Base to Link06 transform: {T_base_to_link06}")
-        print(f"Initial position: {transform.p.x}, {transform.p.y}, {transform.p.z} Initial rotation: {transform.r.x}, {transform.r.y}, {transform.r.z}, {transform.r.w}")
-        self.target_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
+        # transform = self.gym.get_rigid_transform(self.env, 7)
+        # T_base_to_link06 = np.eye(4)
+        # T_base_to_link06[:3, :3] = R.from_quat([transform.r.x, transform.r.y, transform.r.z, transform.r.w]).as_matrix()
+        # T_base_to_link06[:3, 3] = np.array([transform.p.x, transform.p.y, transform.p.z])
+        # print(f"Base to Link06 transform: {T_base_to_link06}")
+        # print(f"Initial position: {transform.p.x}, {transform.p.y}, {transform.p.z} Initial rotation: {transform.r.x}, {transform.r.y}, {transform.r.z}, {transform.r.w}")
+        # self.target_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
 
         
     def initialize_events(self):
@@ -212,6 +212,13 @@ class z1_simulator:
             print("Viewer closed, exiting...")
             self.end()
             exit(0)
+
+        # ...existing code...
+        # 获取当前关节状态
+        dof_states = self.gym.get_actor_dof_states(self.env, self.actor, gymapi.STATE_ALL)
+        self.q_pin = dof_states['pos'].copy()
+        # ...existing code...
+        
         
         events = self.gym.query_viewer_action_events(self.viewer)
         for event in events:
@@ -235,10 +242,16 @@ class z1_simulator:
                     print("Error: Invalid input. Please enter three numeric values separated by spaces.")
             
             if event.action == "show_coords" and event.value > 0:
-                transform = self.gym.get_rigid_transform(self.env, 7)
-                current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
-                print(f"Current position: {current_position}")
-                print(transform)
+                # transform = self.gym.get_rigid_transform(self.env, 7)
+                # current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
+                # print(f"Current position: {current_position}")
+                # print(transform)
+                
+
+                # Forward kinematics
+                
+                print(f"Current pose:{self.pin_data.oMf[7]}")
+                # print(f"Current DOF states: {dof_state}")
 
             if event.action == "reset_all":
                 self.dof_targets[:6] = self.q_home[:6]
@@ -248,9 +261,9 @@ class z1_simulator:
 
             self.steps_count += 1
 
-            transform = self.gym.get_rigid_transform(self.env, 7)
+            transform = self.gym.get_rigid_transform(self.env, 8)
             current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
-            print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
+            # print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
             distance = np.linalg.norm(current_position - self.target_position)
 
             if distance < 0.05 or self.steps_count > 500:
@@ -267,7 +280,8 @@ class z1_simulator:
 
                 self.gym.fetch_results(self.sim, True)
                 q = self.inverse_kinematics(self.target_position)
-                self.dof_targets[:5] = q[:5].astype(np.float32)  # Only use the first 5 joints for IK
+                q = self.compute_joint_velocity(self.target_position)
+                # self.dof_targets[:6] -= np.array(q[:6]).astype(np.float32)
 
         else:
 
@@ -284,7 +298,13 @@ class z1_simulator:
                     else:
                         self.dof_targets[i] += direction * 0.005
 
-        self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
+        # T = np.array([[1,0,0,0.5],
+        #               [0,1,0,0.0],
+        #               [0,0,1,0.2],
+        #               [0,0,0,1]], dtype=np.float32)
+        # print(f"Target pose: {self.ik(T)}")
+        # self.dof_targets[:6] = np.array(self.ik(T)).astype(np.float32)
+        # self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
         self.gym.simulate(self.sim)
         self.gym.step_graphics(self.sim)
@@ -329,6 +349,112 @@ class z1_simulator:
 
         self.q_pin = q
         return q
+    
+    def velocity_inverse_kinematics(self, target_pos, DT=1e-2, svd_thresh=1e-6):
+        JOINT_ID = 7
+        oMdes = pin.SE3(np.eye(3), target_pos)
+
+        q = self.q_pin.copy()
+
+        # Forward kinematics
+        pin.forwardKinematics(self.pin_model, self.pin_data, q)
+        current_pose = self.pin_data.oMi[JOINT_ID]
+        print(f"Current pose: {current_pose}")
+
+        # SE(3) error: transform from current to desired
+        iMd = current_pose.actInv(oMdes)
+        err = pin.log(iMd).vector  # 6D error in se(3)
+
+        # Compute Jacobian and map to log space
+        J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
+        
+        J = -np.dot(pin.Jlog6(iMd.inverse()), J)  # 6xN
+
+        # Use SVD-based pseudoinverse (more stable)
+        U, S, Vh = np.linalg.svd(J, full_matrices=False)
+        S_inv = np.array([1/s if s > svd_thresh else 0 for s in S])
+        J_pinv = Vh.T @ np.diag(S_inv) @ U.T  # Nx6
+
+        # Compute joint velocity
+        dq = J_pinv @ err
+
+        # Limit joint velocities
+        # dq = np.clip(dq, -dq_max, dq_max)
+
+        # Integrate one step
+        q_new = pin.integrate(self.pin_model, q, dq * DT)
+
+        self.q_pin = q_new
+        return q_new
+    
+    def ik(self,T):
+        d_1 = 114
+        d_6 = 105.2
+        a_2 = 350
+        a_3 = 225.5
+
+        o_x = T[0,3]
+        o_y = T[1,3]
+        o_z = T[2,3]
+
+        c_x = o_x - d_6*T[0,2]
+        c_y = o_y - d_6*T[1,2]
+        c_z = o_z - d_6*T[2,2]
+
+        D = (c_x**2 + c_y**2 + (c_z - d_1)**2 - a_2**2 - a_3**2) / (2 * a_2 * a_3)
+        s = [0]*6
+        s[2] = np.arctan2(np.sqrt(1 - D**2), D)
+        s[1] = np.arctan2(c_z - d_1, np.sqrt(c_x**2 + c_y**2)) - np.arctan2(a_3 * np.sin(s[2]), a_2 + a_3 * np.cos(s[2]))
+        s[0] = np.arctan2(c_y, c_x)
+
+        if T[2,2] != 0:
+            s[4] = np.arccos(T[2,2])
+            s[3] = np.arctan2(-np.sin(s[1]+s[2])*T[0,2] + np.cos(s[1]+s[2])*T[1,2], np.sin(s[1]+s[2])*T[0,2] + np.cos(s[1]+s[2])*T[1,2])
+            s[5] = np.arcsin(T[2,1]/np.sin(s[4]))
+        else:
+            s[4] = 0
+            s[3] = s[5] = 0.5*np.arccos(-np.sin(s[1]+s[2])*T[0,1] + np.cos(s[1]+s[2])*T[1,1])
+
+        return s
+    
+    def compute_joint_velocity(self, target, q=None):
+        """
+        计算当前关节q对应的末端位姿误差对应的关节速度增量 u
+        - target: 4x4目标末端位姿矩阵
+        - q: 当前关节角度（如果不传默认用self.q_pin）
+        返回：关节速度向量 u (6维)
+        """
+        JOINT_ID = 7
+        if q is None:
+            q = self.q_pin.copy()
+
+        oMdes = pin.SE3(np.eye(3), target)
+
+        # 1. 计算当前关节角q的正运动学，获得末端当前位姿
+        pin.forwardKinematics(self.pin_model, self.pin_data, q)
+
+        # 当前末端位姿的逆乘以目标，得到误差变换
+        iMd = self.pin_data.oMi[JOINT_ID].actInv(oMdes)
+
+        # 2. 误差向量（李代数空间）
+        err = pin.log(iMd).vector  # 6维误差向量
+
+        # 3. 计算雅可比矩阵
+        J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
+        print(J.shape)
+
+        # 4. 对雅可比矩阵做李代数变换
+        J = -np.dot(pin.Jlog6(iMd.inverse()), J)  # 6x6矩阵
+
+        # 5. 阻尼最小二乘求解关节速度增量 u
+        damp = 0.05 ** 2
+        A = J.dot(J.T) + damp * np.eye(6)
+        u = J.T.dot(np.linalg.solve(A, err))  # 6维向量
+
+        return u.squeeze()
+
+
+
 
 if __name__ == '__main__':
     simulator = z1_simulator()

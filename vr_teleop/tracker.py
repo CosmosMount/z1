@@ -31,8 +31,8 @@ class VRTracker:
 
         self.left_controller_shared = Array('d', 16, lock=True)
         self.right_controller_shared = Array('d', 16, lock=True)
-        self.left_landmarks_shared = Array('d', 75, lock=True)
-        self.right_landmarks_shared = Array('d', 75, lock=True)
+        self.right_botton_a = Value('b', False)
+        self.right_botton_b = Value('b', False)
 
         self.connected = Value('b', False)
         
@@ -79,16 +79,18 @@ class VRTracker:
         self.app.run()
 
     async def track_controller(self, event, session, fps=60):
-        # print(f"Movement Event: key-{event.key}", event.value)
+        print(f"Movement Event: key-{event.key} value:{event.value}\n")
         if not self.connected.value:
             if event.value["right"]:
                 print("connected")
                 with self.connected.get_lock():
                     self.connected.value = True
         try:
-            self.left_controller_shared[:] = event.value["left"]
+            # self.left_controller_shared[:] = event.value["left"]
             self.right_controller_shared[:] = event.value["right"]
-            print(f"right controller: {self.right_controller_shared[:]}")  # Debugging line
+            self.right_botton_a.value = event.value["rightState"]["aButtonValue"]
+            self.right_botton_b.value = event.value["rightState"]["bButtonValue"]
+            # print(f"right controller: {self.right_controller_shared[:]}")  # Debugging line
         except: 
             pass
     
@@ -134,24 +136,6 @@ class VRTracker:
             # aspect = self.aspect_shared.value
             display_image = self.img_array
 
-            # session.upsert(
-            # ImageBackground(
-            #     # Can scale the images down.
-            #     display_image[:self.img_height],
-            #     # 'jpg' encoding is significantly faster than 'png'.
-            #     format="jpeg",
-            #     quality=80,
-            #     key="left-image",
-            #     interpolate=True,
-            #     # fixed=True,
-            #     aspect=1.778,
-            #     distanceToCamera=2,
-            #     position=[0, -0.5, -2],
-            #     rotation=[0, 0, 0],
-            # ),
-            # to="bgChildren",
-            # )
-
             session.upsert(
             [ImageBackground(
                 # Can scale the images down.
@@ -195,13 +179,6 @@ class VRTracker:
             end_time = time.time()
             await asyncio.sleep(0.03)
 
-    # async def connection_probe(self):
-    #     while not self.connected:
-    #         controller_matrix = np.array(self.right_controller_shared)
-    #         if np.linalg.norm(controller_matrix) > 0:
-    #             self.connected = True
-    #             print("VR Tracker connected")
-    #         await asyncio.sleep(1)
     @property
     def left_controller(self):
         # with self.left_controller_shared.get_lock():
@@ -212,6 +189,12 @@ class VRTracker:
         # with self.right_controller_shared.get_lock():
         #     return np.array(self.right_controller_shared).reshape(4, 4, order="F")
         return np.array(self.right_controller_shared).reshape(4, 4, order="F")
+    def get_right_button_a(self):
+        with self.right_botton_a.get_lock():
+            return self.right_botton_a.value
+    def get_right_button_b(self):
+        with self.right_botton_b.get_lock():
+            return self.right_botton_b.value
     @property
     def head_matrix(self):
         # with self.head_matrix_shared.get_lock():
