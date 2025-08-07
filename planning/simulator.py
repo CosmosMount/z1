@@ -4,6 +4,9 @@ from isaacgym import gymutil
 import os
 import time
 import math
+import json
+import socket
+import threading
 import numpy as np
 
 import pinocchio as pin
@@ -13,7 +16,7 @@ from scipy.spatial.transform import Rotation as R
 
 class z1_simulator:
 
-    def __init__(self):
+    def __init__(self, host='127.0.0.1', port=9999):
         self.gym = gymapi.acquire_gym()
         self.create_sim()
         self.create_env()
@@ -25,9 +28,34 @@ class z1_simulator:
         self.initialize_arm()
         self.initialize_events()
 
+        self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.conn.connect((host, port))
+        self.running = True
+        self.listener_thread = threading.Thread(target=self.listen_cmd, daemon=True)
+        self.listener_thread.start()
+
         self.moving_to_target = False
         self.target_reached = False
         self.steps_count = 0
+    
+    def send_sim_state(self, state):
+        try:
+            msg = json.dumps({"type": "state", "data": state}) + '\n'
+            self.conn.sendall(msg.encode('utf-8'))
+            # print("[IsaacSim] Sent message:", msg)
+        except Exception as e:
+            print("[IsaacSim] Failed to send message:", e)
+
+    def listen_cmd(self):
+        buffer = ""
+        while self.running:
+            recv = self.conn.recv(1024).decode('utf-8')
+            buffer += recv
+            while '\n' in buffer:
+                line, buffer = buffer.split('\n', 1)
+                msg = json.loads(line)
+                if msg["type"] == "cmd":
+                    print("[IsaacSim] Received command:", msg["data"])
 
     def create_sim(self):
         sim_params = gymapi.SimParams()
@@ -139,7 +167,7 @@ class z1_simulator:
     #     self.gym.set_actor_rigid_body_properties(self.env, ball_actor, props)
     
     def initialize_arm(self):
-        asset_root = "./assets/z1/urdf"
+        asset_root = "../assets/z1/urdf"
         asset_file = "z1.urdf"
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
@@ -212,34 +240,10 @@ class z1_simulator:
             print("Viewer closed, exiting...")
             self.end()
             exit(0)
-
-        # ...existing code...
-        # 获取当前关节状态
-        dof_states = self.gym.get_actor_dof_states(self.env, self.actor, gymapi.STATE_ALL)
-        self.q_pin = dof_states['pos'].copy()
-        # ...existing code...
         
         
         events = self.gym.query_viewer_action_events(self.viewer)
         for event in events:
-            if event.action == "input_coords" and event.value > 0:
-                try:
-
-                    user_input = input("Please input the target coordinate (x y z), split by spaces: ")
-                    coords = [float(x) for x in user_input.split()]
-                    
-                    if len(coords) == 3:
-                        self.target_position = np.array(coords,dtype=np.float32)
-                        print(f"New target position: {self.target_position}")
-                        self.moving_to_target = True
-                        self.target_reached = False
-                        self.steps_count = 0
-
-                    else:
-                        print("Error: Please input exactly three coordinates (x, y, z)")
-
-                except ValueError:
-                    print("Error: Invalid input. Please enter three numeric values separated by spaces.")
             
             if event.action == "show_coords" and event.value > 0:
                 # transform = self.gym.get_rigid_transform(self.env, 7)
@@ -255,206 +259,39 @@ class z1_simulator:
 
             if event.action == "reset_all":
                 self.dof_targets[:6] = self.q_home[:6]
-                self.q_pin[:] = self.q_home
 
-        if self.moving_to_target and not self.target_reached:
+        for event in events:
+            if event.action in self.key_states:
+                self.key_states[event.action] = event.value > 0
 
-            self.steps_count += 1
-
-            transform = self.gym.get_rigid_transform(self.env, 8)
-            current_position = np.array([transform.p.x, transform.p.y, transform.p.z], dtype=np.float32)
-            # print(f"Step {self.steps_count}  Current position: {current_position}, Target position: {self.target_position}")
-            distance = np.linalg.norm(current_position - self.target_position)
-
-            if distance < 0.05 or self.steps_count > 500:
-
-                self.target_reached = True
-                self.moving_to_target = False
-                print("Target position reached." if distance < 0.05 else "Steps limit exceeded, target cannot be reached.")
-                if self.steps_count > 500:
-                    self.dof_targets[:6] = self.q_home[:6]
-                    self.q_pin[:] = self.q_home
+        for i in range(7):
+            action_key = f"joint_{i+1}"
+            if self.key_states[action_key]:
+                direction = -1 if self.key_states["shift"] else 1
+                if i == 0:
+                    self.dof_targets[i] += direction * 0.05
+                else:
+                    self.dof_targets[i] += direction * 0.005
+            
 
 
-            else:
-
-                self.gym.fetch_results(self.sim, True)
-                q = self.inverse_kinematics(self.target_position)
-                q = self.compute_joint_velocity(self.target_position)
-                # self.dof_targets[:6] -= np.array(q[:6]).astype(np.float32)
-
-        else:
-
-            for event in events:
-                if event.action in self.key_states:
-                    self.key_states[event.action] = event.value > 0
-
-            for i in range(7):
-                action_key = f"joint_{i+1}"
-                if self.key_states[action_key]:
-                    direction = -1 if self.key_states["shift"] else 1
-                    if i == 0:
-                        self.dof_targets[i] += direction * 0.05
-                    else:
-                        self.dof_targets[i] += direction * 0.005
-
-        # T = np.array([[1,0,0,0.5],
-        #               [0,1,0,0.0],
-        #               [0,0,1,0.2],
-        #               [0,0,0,1]], dtype=np.float32)
-        # print(f"Target pose: {self.ik(T)}")
-        # self.dof_targets[:6] = np.array(self.ik(T)).astype(np.float32)
-        # self.dof_targets = np.clip(self.dof_targets, self.lower_limits, self.upper_limits)
         self.gym.set_actor_dof_position_targets(self.env, self.actor, self.dof_targets)
+        transform = self.gym.get_rigid_transform(self.env, 8)
+        state = {
+            "position": [transform.p.x, transform.p.y, transform.p.z],
+            "rotation": [transform.r.x, transform.r.y, transform.r.z, transform.r.w]
+        }
+        
         self.gym.simulate(self.sim)
         self.gym.step_graphics(self.sim)
         self.gym.draw_viewer(self.viewer, self.sim, True)
+
+        self.send_sim_state(state)
 
     def end(self):
         self.gym.destroy_viewer(self.viewer)
         self.gym.destroy_sim(self.sim)
     
-    def inverse_kinematics(self, target_pos):
-
-        JOINT_ID = 6
-        oMdes = pin.SE3(np.eye(3), target_pos)
-
-        q = self.q_pin.copy()
-        eps = 1e-4
-        IT_MAX = 1000
-        DT = 1e-3
-        damp = 1e-16
-
-        for _ in range(IT_MAX):
-            # Forward kinematics to compute the current wrist pose
-            pin.forwardKinematics(self.pin_model, self.pin_data, q)
-            # Calculate the current wrist pose in the world frame
-            iMd = self.pin_data.oMi[JOINT_ID].actInv(oMdes)
-            # Calculate the error vector in the Lie algebra space
-            err = pin.log(iMd).vector
-
-            # Check if the error is within the acceptable range
-            if norm(err) < eps:
-                success = True
-                break
-
-            # Calculate the Jacobian matrix for the wrist joint
-            J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
-            # Calculate the Jacobian matrix in the Lie algebra space
-            J = -np.dot(pin.Jlog6(iMd.inverse()), J)
-            # Use the damped least squares method to compute the joint velocity
-            v = -J.T.dot(solve(J.dot(J.T) + damp * np.eye(6), err))
-            # Update the joint positions using the computed velocity
-            q = pin.integrate(self.pin_model, q, v * DT)
-
-        self.q_pin = q
-        return q
-    
-    def velocity_inverse_kinematics(self, target_pos, DT=1e-2, svd_thresh=1e-6):
-        JOINT_ID = 7
-        oMdes = pin.SE3(np.eye(3), target_pos)
-
-        q = self.q_pin.copy()
-
-        # Forward kinematics
-        pin.forwardKinematics(self.pin_model, self.pin_data, q)
-        current_pose = self.pin_data.oMi[JOINT_ID]
-        print(f"Current pose: {current_pose}")
-
-        # SE(3) error: transform from current to desired
-        iMd = current_pose.actInv(oMdes)
-        err = pin.log(iMd).vector  # 6D error in se(3)
-
-        # Compute Jacobian and map to log space
-        J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
-        
-        J = -np.dot(pin.Jlog6(iMd.inverse()), J)  # 6xN
-
-        # Use SVD-based pseudoinverse (more stable)
-        U, S, Vh = np.linalg.svd(J, full_matrices=False)
-        S_inv = np.array([1/s if s > svd_thresh else 0 for s in S])
-        J_pinv = Vh.T @ np.diag(S_inv) @ U.T  # Nx6
-
-        # Compute joint velocity
-        dq = J_pinv @ err
-
-        # Limit joint velocities
-        # dq = np.clip(dq, -dq_max, dq_max)
-
-        # Integrate one step
-        q_new = pin.integrate(self.pin_model, q, dq * DT)
-
-        self.q_pin = q_new
-        return q_new
-    
-    def ik(self,T):
-        d_1 = 114
-        d_6 = 105.2
-        a_2 = 350
-        a_3 = 225.5
-
-        o_x = T[0,3]
-        o_y = T[1,3]
-        o_z = T[2,3]
-
-        c_x = o_x - d_6*T[0,2]
-        c_y = o_y - d_6*T[1,2]
-        c_z = o_z - d_6*T[2,2]
-
-        D = (c_x**2 + c_y**2 + (c_z - d_1)**2 - a_2**2 - a_3**2) / (2 * a_2 * a_3)
-        s = [0]*6
-        s[2] = np.arctan2(np.sqrt(1 - D**2), D)
-        s[1] = np.arctan2(c_z - d_1, np.sqrt(c_x**2 + c_y**2)) - np.arctan2(a_3 * np.sin(s[2]), a_2 + a_3 * np.cos(s[2]))
-        s[0] = np.arctan2(c_y, c_x)
-
-        if T[2,2] != 0:
-            s[4] = np.arccos(T[2,2])
-            s[3] = np.arctan2(-np.sin(s[1]+s[2])*T[0,2] + np.cos(s[1]+s[2])*T[1,2], np.sin(s[1]+s[2])*T[0,2] + np.cos(s[1]+s[2])*T[1,2])
-            s[5] = np.arcsin(T[2,1]/np.sin(s[4]))
-        else:
-            s[4] = 0
-            s[3] = s[5] = 0.5*np.arccos(-np.sin(s[1]+s[2])*T[0,1] + np.cos(s[1]+s[2])*T[1,1])
-
-        return s
-    
-    def compute_joint_velocity(self, target, q=None):
-        """
-        计算当前关节q对应的末端位姿误差对应的关节速度增量 u
-        - target: 4x4目标末端位姿矩阵
-        - q: 当前关节角度（如果不传默认用self.q_pin）
-        返回：关节速度向量 u (6维)
-        """
-        JOINT_ID = 7
-        if q is None:
-            q = self.q_pin.copy()
-
-        oMdes = pin.SE3(np.eye(3), target)
-
-        # 1. 计算当前关节角q的正运动学，获得末端当前位姿
-        pin.forwardKinematics(self.pin_model, self.pin_data, q)
-
-        # 当前末端位姿的逆乘以目标，得到误差变换
-        iMd = self.pin_data.oMi[JOINT_ID].actInv(oMdes)
-
-        # 2. 误差向量（李代数空间）
-        err = pin.log(iMd).vector  # 6维误差向量
-
-        # 3. 计算雅可比矩阵
-        J = pin.computeJointJacobian(self.pin_model, self.pin_data, q, JOINT_ID)
-        print(J.shape)
-
-        # 4. 对雅可比矩阵做李代数变换
-        J = -np.dot(pin.Jlog6(iMd.inverse()), J)  # 6x6矩阵
-
-        # 5. 阻尼最小二乘求解关节速度增量 u
-        damp = 0.05 ** 2
-        A = J.dot(J.T) + damp * np.eye(6)
-        u = J.T.dot(np.linalg.solve(A, err))  # 6维向量
-
-        return u.squeeze()
-
-
-
 
 if __name__ == '__main__':
     simulator = z1_simulator()
