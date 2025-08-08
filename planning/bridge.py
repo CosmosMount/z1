@@ -1,4 +1,4 @@
-# ros_socket_bridge.py
+# bridge between isaac gym and ROS2
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -19,7 +19,7 @@ class SocketBridgeNode(Node):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.bind(('127.0.0.1', 9999))
         server.listen(1)
-        self.get_logger().info("Waiting for IsaacSim connection...")
+        self.get_logger().info("Waiting for isaac gym connection...")
         conn, addr = server.accept()
         self.get_logger().info(f"Connected by {addr}")
         self.client_conn = conn

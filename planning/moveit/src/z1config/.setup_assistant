@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: z1description
+    relative_path: urdf/robot.xacro
+  srdf:
+    relative_path: config/z1description.srdf
+  package_settings:
+    author_name: yushan zhang
+    author_email: yzhang1150@gmail.com
+    generated_timestamp: 1754460397
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
